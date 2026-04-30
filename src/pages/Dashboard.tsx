@@ -152,7 +152,7 @@ export default function Dashboard() {
           delta={data.overdueCount > 0 ? "Atención" : "OK"}
         />
         <MetricCard label="Ticket promedio" value={formatCurrency(data.avgOrder)} />
-        <MetricCard label="Pago favorito" value={data.topMethod.toUpperCase()}>
+        <MetricCard label="Pago favorito" value={(data.topMethod ?? "—").toUpperCase()}>
           {formatNumber(data.topMethodCount)} órdenes
         </MetricCard>
       </div>
