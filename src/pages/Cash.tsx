@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/PageHeader";
 import { MetricCard } from "@/components/MetricCard";
@@ -6,19 +6,30 @@ import { Plus } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { toast } from "sonner";
+import { formatCurrency, limaIso, startOfMonthLima, startOfTodayLima, endOfTodayLima } from "@/lib/format";
 
 const METHODS = ["cash", "yape", "pos", "bank"] as const;
+type Method = typeof METHODS[number];
 
 export default function Cash() {
   const [list, setList] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ type: "income", method: "cash", amount: "", description: "" });
+  const [form, setForm] = useState({ type: "income", method: "cash" as Method, amount: "", description: "" });
+  const [filter, setFilter] = useState<"today" | "month">("today");
 
   const load = async () => {
-    const { data } = await supabase.from("cash_entries").select("*").order("created_at", { ascending: false }).limit(100);
+    const start = filter === "today" ? startOfTodayLima() : startOfMonthLima(0);
+    const end = filter === "today" ? endOfTodayLima() : limaIso(9999, 1, 1);
+    const { data } = await supabase
+      .from("cash_entries")
+      .select("*")
+      .gte("created_at", start)
+      .lt("created_at", end)
+      .order("created_at", { ascending: false })
+      .limit(500);
     setList(data ?? []);
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [filter]);
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,7 +38,7 @@ export default function Cash() {
     if (form.description.length > 200) return toast.error("Descripción muy larga");
     const { error } = await supabase.from("cash_entries").insert({
       type: form.type as any,
-      method: form.method as any,
+      method: form.method,
       amount,
       description: form.description.trim() || null,
     });
@@ -38,11 +49,20 @@ export default function Cash() {
     load();
   };
 
-  const today = new Date();
-  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
-  const todayList = list.filter((c) => c.created_at >= start);
-  const income = todayList.filter((c) => c.type === "income").reduce((s, c) => s + Number(c.amount), 0);
-  const expense = todayList.filter((c) => c.type === "expense").reduce((s, c) => s + Number(c.amount), 0);
+  const totals = useMemo(() => {
+    const income = list.filter((c) => c.type === "income").reduce((s, c) => s + Number(c.amount), 0);
+    const expense = list.filter((c) => c.type === "expense").reduce((s, c) => s + Number(c.amount), 0);
+    const byMethod: Record<Method, { in: number; out: number }> = {
+      cash: { in: 0, out: 0 }, yape: { in: 0, out: 0 }, pos: { in: 0, out: 0 }, bank: { in: 0, out: 0 },
+    };
+    list.forEach((c) => {
+      const m = c.method as Method;
+      if (!byMethod[m]) return;
+      if (c.type === "income") byMethod[m].in += Number(c.amount);
+      else byMethod[m].out += Number(c.amount);
+    });
+    return { income, expense, byMethod, balance: income - expense };
+  }, [list]);
 
   return (
     <>
@@ -56,10 +76,44 @@ export default function Cash() {
         }
       />
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 stagger mb-8">
-        <MetricCard label="Ingresos hoy" value={`S/ ${income.toFixed(2)}`} deltaTone="pos" />
-        <MetricCard label="Egresos hoy" value={`S/ ${expense.toFixed(2)}`} deltaTone="neg" />
-        <MetricCard label="Balance hoy" value={`S/ ${(income - expense).toFixed(2)}`} />
+      <div className="flex gap-2 mb-5 animate-fade-up">
+        {([
+          { k: "today", l: "Hoy" },
+          { k: "month", l: "Este mes" },
+        ] as const).map((f) => (
+          <button
+            key={f.k}
+            onClick={() => setFilter(f.k)}
+            className={`text-[12px] px-3 py-1.5 rounded-md border transition-colors ${
+              filter === f.k ? "border-accent text-foreground bg-surface" : "border-border text-muted hover:text-foreground"
+            }`}
+          >
+            {f.l}
+          </button>
+        ))}
+        <span className="text-[11px] text-muted self-center ml-2">Zona horaria: Lima (UTC-5)</span>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 stagger mb-6">
+        <MetricCard label="Ingresos" value={formatCurrency(totals.income)} deltaTone="pos" />
+        <MetricCard label="Egresos" value={formatCurrency(totals.expense)} deltaTone="neg" />
+        <MetricCard label="Balance" value={formatCurrency(totals.balance)} />
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 stagger mb-8">
+        {METHODS.map((m) => {
+          const net = totals.byMethod[m].in - totals.byMethod[m].out;
+          return (
+            <div key={m} className="mictio-card p-4">
+              <div className="eyebrow mb-2">{m}</div>
+              <div className="text-[18px] font-bold tracking-tight">{formatCurrency(net)}</div>
+              <div className="flex items-center gap-2 mt-1 text-[10px]">
+                <span className="text-success">+{formatCurrency(totals.byMethod[m].in)}</span>
+                <span className="text-danger">−{formatCurrency(totals.byMethod[m].out)}</span>
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       <div className="mictio-card overflow-hidden animate-fade-up">
@@ -70,6 +124,7 @@ export default function Cash() {
               <th className="px-4 py-3 eyebrow">Tipo</th>
               <th className="px-4 py-3 eyebrow">Método</th>
               <th className="px-4 py-3 eyebrow">Descripción</th>
+              <th className="px-4 py-3 eyebrow">Origen</th>
               <th className="px-4 py-3 eyebrow text-right">Monto</th>
             </tr>
           </thead>
@@ -84,11 +139,19 @@ export default function Cash() {
                 </td>
                 <td className="px-4 py-3 text-muted uppercase text-[11px]">{c.method}</td>
                 <td className="px-4 py-3 text-muted">{c.description ?? "—"}</td>
+                <td className="px-4 py-3 text-[10px]">
+                  {c.reference_order_id
+                    ? <span className="badge-state badge-state-neutral">Orden</span>
+                    : <span className="text-muted">Manual</span>}
+                </td>
                 <td className={`px-4 py-3 text-right font-semibold ${c.type === "income" ? "text-success" : "text-danger"}`}>
-                  {c.type === "income" ? "+" : "-"}S/ {Number(c.amount).toFixed(2)}
+                  {c.type === "income" ? "+" : "−"}{formatCurrency(Number(c.amount))}
                 </td>
               </tr>
             ))}
+            {list.length === 0 && (
+              <tr><td colSpan={6} className="text-center py-10 text-muted text-[12px]">Sin movimientos en este rango</td></tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -111,7 +174,7 @@ export default function Cash() {
               </div>
               <div>
                 <label className="eyebrow block mb-1.5">Método</label>
-                <select value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value })}
+                <select value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value as Method })}
                   className="w-full bg-background border border-border rounded-md px-3 py-2 text-[13px]">
                   {METHODS.map((m) => <option key={m} value={m}>{m.toUpperCase()}</option>)}
                 </select>
