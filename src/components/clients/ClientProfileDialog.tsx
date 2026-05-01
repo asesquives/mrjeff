@@ -17,6 +17,7 @@ export const ClientProfileDialog = ({
 }) => {
   const [client, setClient] = useState<any>(null);
   const [orders, setOrders] = useState<any[]>([]);
+  const [receipts, setReceipts] = useState<any[]>([]);
 
   useEffect(() => {
     (async () => {
@@ -26,6 +27,15 @@ export const ClientProfileDialog = ({
       ]);
       setClient(c.data);
       setOrders(o.data ?? []);
+      const orderIds = (o.data ?? []).map((x: any) => x.id);
+      if (orderIds.length) {
+        const { data: r } = await supabase
+          .from("receipts")
+          .select("*")
+          .in("order_id", orderIds)
+          .order("created_at", { ascending: false });
+        setReceipts(r ?? []);
+      }
     })();
   }, [clientId]);
 
@@ -103,6 +113,35 @@ export const ClientProfileDialog = ({
                 ))}
                 {orders.length === 0 && (
                   <tr><td colSpan={4} className="text-center py-6 text-muted">Sin órdenes</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="mt-5">
+          <div className="eyebrow mb-3">Comprobantes</div>
+          <div className="mictio-card overflow-hidden">
+            <table className="w-full text-[12px]">
+              <thead>
+                <tr className="text-left border-b border-border">
+                  <th className="px-3 py-2 eyebrow">Fecha</th>
+                  <th className="px-3 py-2 eyebrow">Tipo</th>
+                  <th className="px-3 py-2 eyebrow">Documento</th>
+                  <th className="px-3 py-2 eyebrow">Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {receipts.map((r) => (
+                  <tr key={r.id} className="border-b border-border last:border-0">
+                    <td className="px-3 py-2 text-muted">{format(new Date(r.created_at), "d MMM yyyy", { locale: es })}</td>
+                    <td className="px-3 py-2 capitalize font-medium">{r.receipt_type}</td>
+                    <td className="px-3 py-2 text-muted">{r.client_doc ?? "—"}</td>
+                    <td className="px-3 py-2"><StatusBadge status={r.status} /></td>
+                  </tr>
+                ))}
+                {receipts.length === 0 && (
+                  <tr><td colSpan={4} className="text-center py-6 text-muted">Sin comprobantes</td></tr>
                 )}
               </tbody>
             </table>
