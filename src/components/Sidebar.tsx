@@ -1,5 +1,5 @@
 import { NavLink, useLocation } from "react-router-dom";
-import { LayoutDashboard, ClipboardList, Users, Wallet, UserCog, Sun, Moon, LogOut } from "lucide-react";
+import { LayoutDashboard, ClipboardList, Users, Wallet, UserCog, FileText, Sun, Moon, LogOut } from "lucide-react";
 import { MictioLogo } from "./MictioLogo";
 import { useTheme } from "@/lib/theme";
 import { useAuth } from "@/lib/auth";
@@ -9,6 +9,7 @@ const items = [
   { to: "/orders", label: "Órdenes", icon: ClipboardList },
   { to: "/clients", label: "Clientes", icon: Users },
   { to: "/cash", label: "Caja", icon: Wallet },
+  { to: "/receipts", label: "Comprobantes", icon: FileText },
   { to: "/operators", label: "Operadores", icon: UserCog },
 ];
 

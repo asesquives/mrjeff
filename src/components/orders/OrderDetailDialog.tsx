@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { StatusBadge, STATUS_OPTIONS } from "@/components/StatusBadge";
-import { X, AlertTriangle } from "lucide-react";
+import { X, AlertTriangle, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
+import { IssueReceiptDialog } from "@/components/receipts/IssueReceiptDialog";
 
 export const OrderDetailDialog = ({
   orderId,
@@ -18,6 +19,7 @@ export const OrderDetailDialog = ({
   const [order, setOrder] = useState<any>(null);
   const [items, setItems] = useState<any[]>([]);
   const [busy, setBusy] = useState(false);
+  const [issueOpen, setIssueOpen] = useState(false);
 
   const load = async () => {
     const [o, it] = await Promise.all([
@@ -73,6 +75,11 @@ export const OrderDetailDialog = ({
         });
         if (eCash) toast.error("Estado actualizado, pero falló el registro en caja: " + eCash.message);
         else toast.success("Entregada y registrada en caja");
+
+        // Ofrecer emitir comprobante
+        if (window.confirm("¿Deseas emitir un comprobante (boleta/factura) para esta orden?")) {
+          setIssueOpen(true);
+        }
       } else {
         toast.success("Estado actualizado");
       }
@@ -182,6 +189,14 @@ export const OrderDetailDialog = ({
             Pago: <span className="uppercase font-medium text-foreground">{order.payment_method ?? "—"}</span>
           </div>
           <div className="flex items-center gap-2">
+            {order.status === "delivered" && (
+              <button
+                onClick={() => setIssueOpen(true)}
+                className="inline-flex items-center gap-1.5 border border-border rounded-md px-3 py-1.5 text-[12px] text-muted hover:text-foreground hover:border-accent"
+              >
+                <FileText size={12} /> Emitir comprobante
+              </button>
+            )}
             <span className="eyebrow">Cambiar estado</span>
             <select
               value={order.status}
@@ -194,6 +209,14 @@ export const OrderDetailDialog = ({
           </div>
         </div>
       </div>
+
+      {issueOpen && (
+        <IssueReceiptDialog
+          orderId={order.id}
+          defaultClientName={order.clients?.name}
+          onClose={() => setIssueOpen(false)}
+        />
+      )}
     </div>
   );
 };
