@@ -196,32 +196,15 @@ export default function Dashboard() {
         title="Dashboard"
       />
 
-      {/* Period selector */}
-      <div className="flex items-center gap-2 mb-5 animate-fade-up flex-wrap">
-        {([
-          { k: "week", l: "Semana" },
-          { k: "month", l: "Mensual" },
-          { k: "ytd", l: "YTD" },
-          { k: "custom", l: "Personalizado" },
-        ] as { k: PeriodMode; l: string }[]).map((t) => (
-          <button
-            key={t.k}
-            onClick={() => setMode(t.k)}
-            className={cn(
-              "text-[12px] px-3 py-1.5 rounded-md border transition-colors",
-              mode === t.k ? "border-accent text-foreground bg-surface" : "border-border text-muted hover:text-foreground"
-            )}
-          >
-            {t.l}
-          </button>
-        ))}
-
-        {mode === "custom" && (
-          <>
-            <DateBtn date={custom.from} placeholder="Desde" onChange={(d) => setCustom((c) => ({ ...c, from: d }))} />
-            <DateBtn date={custom.to} placeholder="Hasta" onChange={(d) => setCustom((c) => ({ ...c, to: d }))} />
-          </>
-        )}
+      <div className="mb-5 animate-fade-up">
+        <PeriodSelector
+          value={period}
+          onChange={(p) => {
+            setMode(p.mode);
+            setRefDate(p.date);
+            setCustom({ from: p.customStart, to: p.customEnd });
+          }}
+        />
       </div>
 
       {!data ? (
