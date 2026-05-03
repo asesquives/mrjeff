@@ -363,6 +363,55 @@ function trendCaption(period: PeriodKey, n: number) {
   return `${n} periodos`;
 }
 
+function ChartsRow({
+  trend, incomeTotal, ordersTotal, caption,
+}: {
+  trend: { label: string; income: number; orders: number; isCurrent: boolean }[];
+  incomeTotal: number;
+  ordersTotal: number;
+  caption: string;
+}) {
+  const [incHover, setIncHover] = useState<number | null>(null);
+  const [ordHover, setOrdHover] = useState<number | null>(null);
+
+  const incRight = incHover != null
+    ? `${trend[incHover].label} · ${formatCurrency(trend[incHover].income)}`
+    : formatCurrency(incomeTotal);
+  const ordRight = ordHover != null
+    ? `${trend[ordHover].label} · ${formatNumber(trend[ordHover].orders)}`
+    : formatNumber(ordersTotal);
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 stagger mb-8">
+      <div className="mictio-card p-5">
+        <div className="flex items-center justify-between mb-1">
+          <span className="eyebrow">Ingresos</span>
+          <span className="text-[12px] font-medium tabular-nums">{incRight}</span>
+        </div>
+        <div className="text-[11px] text-muted mb-3">{caption}</div>
+        <BarsChart
+          bars={trend.map((b) => ({ label: b.label, value: b.income, current: b.isCurrent }))}
+          valueFormatter={formatCurrency}
+          hoverIndex={incHover}
+          onHoverChange={setIncHover}
+        />
+      </div>
+      <div className="mictio-card p-5">
+        <div className="flex items-center justify-between mb-1">
+          <span className="eyebrow">Órdenes</span>
+          <span className="text-[12px] font-medium tabular-nums">{ordRight}</span>
+        </div>
+        <div className="text-[11px] text-muted mb-3">{caption}</div>
+        <LineChart
+          points={trend.map((b) => ({ label: b.label, value: b.orders }))}
+          hoverIndex={ordHover}
+          onHoverChange={setOrdHover}
+        />
+      </div>
+    </div>
+  );
+}
+
 function DateBtn({ date, placeholder, onChange }: { date?: Date; placeholder: string; onChange: (d?: Date) => void }) {
   return (
     <Popover>
