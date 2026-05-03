@@ -394,6 +394,7 @@ function ChartsRow({
           valueFormatter={formatCurrency}
           hoverIndex={incHover}
           onHoverChange={setIncHover}
+          tooltipLabel="Ingresos"
         />
       </div>
       <div className="mictio-card p-5">
@@ -406,6 +407,7 @@ function ChartsRow({
           points={trend.map((b) => ({ label: b.label, value: b.orders }))}
           hoverIndex={ordHover}
           onHoverChange={setOrdHover}
+          tooltipLabel="Órdenes"
         />
       </div>
     </div>
