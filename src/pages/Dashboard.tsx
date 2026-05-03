@@ -115,15 +115,15 @@ export default function Dashboard() {
           return d >= from.getTime() && d <= to.getTime();
         });
 
-      const ordersCurr = inRange(orders, "received_at", current.from, current.to);
-      const ordersPrev = inRange(orders, "received_at", previous.from, previous.to);
+      const ordersCurr = inRange(orders, "received_at", current.start, current.end);
+      const ordersPrev = inRange(orders, "received_at", previous.start, previous.end);
 
       const clientsCurr = new Set(ordersCurr.map((o: any) => o.client_id).filter(Boolean));
       const clientsPrev = new Set(ordersPrev.map((o: any) => o.client_id).filter(Boolean));
 
-      const incomeCurr = inRange(cash, "created_at", current.from, current.to)
+      const incomeCurr = inRange(cash, "created_at", current.start, current.end)
         .filter((c: any) => c.type === "income").reduce((s, c: any) => s + Number(c.amount), 0);
-      const incomePrev = inRange(cash, "created_at", previous.from, previous.to)
+      const incomePrev = inRange(cash, "created_at", previous.start, previous.end)
         .filter((c: any) => c.type === "income").reduce((s, c: any) => s + Number(c.amount), 0);
 
       // KPIs operativos (siempre actuales, independientes del periodo)
@@ -178,7 +178,7 @@ export default function Dashboard() {
         overdueList,
       });
     })();
-  }, [period, current.from, current.to, previous.from, previous.to]);
+  }, [period, current.start, current.end, previous.start, previous.end]);
 
   const periodLabel = (() => {
     if (period === "week") return "vs semana anterior";
@@ -187,7 +187,7 @@ export default function Dashboard() {
     return "vs periodo previo";
   })();
 
-  const rangeLabel = `${format(current.from, "d MMM yyyy", { locale: es })} – ${format(current.to, "d MMM yyyy", { locale: es })}`;
+  const rangeLabel = `${format(current.start, "d MMM yyyy", { locale: es })} – ${format(current.end, "d MMM yyyy", { locale: es })}`;
 
   return (
     <>
