@@ -92,13 +92,13 @@ export default function Dashboard() {
     (async () => {
       // Fetch range covering current + previous + buckets
       const minFrom = new Date(Math.min(
-        previous.from.getTime(),
-        current.from.getTime(),
+        previous.start.getTime(),
+        current.start.getTime(),
         ...buckets.map((b) => b.from.getTime()),
       ));
       const maxTo = new Date(Math.max(
-        previous.to.getTime(),
-        current.to.getTime(),
+        previous.end.getTime(),
+        current.end.getTime(),
         ...buckets.map((b) => b.to.getTime()),
       ));
 
