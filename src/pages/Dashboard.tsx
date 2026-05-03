@@ -312,25 +312,12 @@ export default function Dashboard() {
             </MetricCard>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 stagger mb-8">
-            <div className="mictio-card p-5">
-              <div className="flex items-center justify-between mb-4">
-                <span className="eyebrow">Ingresos</span>
-                <span className="text-[11px] text-muted">{trendCaption(period, data.trend.length)}</span>
-              </div>
-              <BarsChart
-                bars={data.trend.map((b: any) => ({ label: b.label, value: b.income, current: b.isCurrent }))}
-                valueFormatter={formatCurrency}
-              />
-            </div>
-            <div className="mictio-card p-5">
-              <div className="flex items-center justify-between mb-4">
-                <span className="eyebrow">Órdenes</span>
-                <span className="text-[11px] text-muted">{trendCaption(period, data.trend.length)}</span>
-              </div>
-              <LineChart points={data.trend.map((b: any) => ({ label: b.label, value: b.orders }))} />
-            </div>
-          </div>
+          <ChartsRow
+            trend={data.trend}
+            incomeTotal={data.incomeCurr}
+            ordersTotal={data.ordersCurr}
+            caption={trendCaption(period, data.trend.length)}
+          />
 
           <div className="mictio-card p-5 animate-fade-up">
             <div className="flex items-center justify-between mb-4">
