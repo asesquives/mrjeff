@@ -17,6 +17,7 @@ import {
   DashboardPeriod, PeriodMode,
   getPeriodRange, getPreviousPeriodRange,
 } from "@/lib/period";
+import PeriodSelector from "@/components/PeriodSelector";
 
 const pct = (curr: number, prev: number) => {
   if (prev === 0) return curr === 0 ? 0 : 100;
