@@ -4,8 +4,8 @@ import { PageHeader } from "@/components/PageHeader";
 import { MetricCard } from "@/components/MetricCard";
 import { BarsChart, LineChart } from "@/components/charts/MiniCharts";
 import {
-  format, startOfWeek, startOfMonth, startOfYear,
-  addDays, addMonths, addWeeks, addYears, differenceInDays,
+  format, startOfMonth, startOfWeek,
+  addMonths, addWeeks, endOfWeek, endOfMonth, endOfDay,
 } from "date-fns";
 import { es } from "date-fns/locale";
 import { formatCurrency, formatNumber } from "@/lib/format";
@@ -13,9 +13,10 @@ import { AlertTriangle, CalendarIcon } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
-
-type PeriodKey = "week" | "month" | "ytd" | "custom";
-type Range = { from: Date; to: Date; label: string };
+import {
+  DashboardPeriod, PeriodMode,
+  getPeriodRange, getPreviousPeriodRange,
+} from "@/lib/period";
 
 const pct = (curr: number, prev: number) => {
   if (prev === 0) return curr === 0 ? 0 : 100;
@@ -34,108 +35,58 @@ const fmtDeltaCurrency = (curr: number, prev: number) => {
   return `${sign}${formatCurrency(Math.abs(diff))} · ${diff >= 0 ? "+" : "−"}${Math.abs(p).toFixed(0)}%`;
 };
 
-/** Build current and comparison range for a period. */
-function buildRanges(period: PeriodKey, custom: { from?: Date; to?: Date }): { current: Range; previous: Range } {
-  const now = new Date();
-  if (period === "week") {
-    const from = startOfWeek(now, { weekStartsOn: 1 });
-    const to = now;
-    return {
-      current: { from, to, label: "Esta semana" },
-      previous: { from: addWeeks(from, -1), to: addWeeks(to, -1), label: "Semana anterior" },
-    };
-  }
-  if (period === "month") {
-    const from = startOfMonth(now);
-    const to = now;
-    return {
-      current: { from, to, label: "Este mes" },
-      previous: { from: addMonths(from, -1), to: addMonths(to, -1), label: "Mes anterior" },
-    };
-  }
-  if (period === "ytd") {
-    const from = startOfYear(now);
-    const to = now;
-    return {
-      current: { from, to, label: "Año en curso" },
-      previous: { from: addYears(from, -1), to: addYears(to, -1), label: "Año anterior" },
-    };
-  }
-  // custom
-  const from = custom.from ?? startOfMonth(now);
-  const to = custom.to ?? now;
-  const days = Math.max(1, differenceInDays(to, from) + 1);
-  return {
-    current: { from, to, label: "Personalizado" },
-    previous: { from: addDays(from, -days), to: addDays(to, -days), label: "Periodo previo" },
-  };
-}
-
-/** Build trend buckets for a period. */
-function buildBuckets(period: PeriodKey, current: Range): { from: Date; to: Date; label: string; isCurrent: boolean }[] {
-  const buckets: { from: Date; to: Date; label: string; isCurrent: boolean }[] = [];
-  const now = new Date();
-
-  if (period === "week") {
-    // last 8 weeks (weekly)
+/** Build trailing trend buckets for the chart based on granularity. */
+function buildBuckets(
+  granularity: "week" | "month",
+  anchorEnd: Date,
+): { from: Date; to: Date; label: string; isCurrent: boolean }[] {
+  const out: { from: Date; to: Date; label: string; isCurrent: boolean }[] = [];
+  if (granularity === "week") {
+    const anchor = startOfWeek(anchorEnd, { weekStartsOn: 1 });
     for (let i = 7; i >= 0; i--) {
-      const f = addWeeks(startOfWeek(now, { weekStartsOn: 1 }), -i);
-      const t = addDays(f, 7);
-      buckets.push({ from: f, to: t, label: format(f, "d MMM", { locale: es }), isCurrent: i === 0 });
-    }
-    return buckets;
-  }
-  if (period === "month") {
-    for (let i = 5; i >= 0; i--) {
-      const f = addMonths(startOfMonth(now), -i);
-      const t = addMonths(f, 1);
-      buckets.push({ from: f, to: t, label: format(f, "MMM", { locale: es }), isCurrent: i === 0 });
-    }
-    return buckets;
-  }
-  if (period === "ytd") {
-    const startY = startOfYear(now);
-    const months = now.getMonth() + 1;
-    for (let i = 0; i < months; i++) {
-      const f = addMonths(startY, i);
-      const t = addMonths(f, 1);
-      buckets.push({ from: f, to: t, label: format(f, "MMM", { locale: es }), isCurrent: i === months - 1 });
-    }
-    return buckets;
-  }
-  // custom: choose granularity
-  const days = differenceInDays(current.to, current.from) + 1;
-  if (days <= 14) {
-    for (let i = 0; i < days; i++) {
-      const f = addDays(current.from, i);
-      const t = addDays(f, 1);
-      buckets.push({ from: f, to: t, label: format(f, "d MMM", { locale: es }), isCurrent: i === days - 1 });
-    }
-  } else if (days <= 90) {
-    let f = startOfWeek(current.from, { weekStartsOn: 1 });
-    while (f <= current.to) {
-      const t = addDays(f, 7);
-      buckets.push({ from: f, to: t, label: format(f, "d MMM", { locale: es }), isCurrent: t > current.to });
-      f = t;
+      const f = addWeeks(anchor, -i);
+      const t = endOfWeek(f, { weekStartsOn: 1 });
+      out.push({
+        from: f, to: t,
+        label: format(f, "d MMM", { locale: es }),
+        isCurrent: i === 0,
+      });
     }
   } else {
-    let f = startOfMonth(current.from);
-    while (f <= current.to) {
-      const t = addMonths(f, 1);
-      buckets.push({ from: f, to: t, label: format(f, "MMM yy", { locale: es }), isCurrent: t > current.to });
-      f = t;
+    const anchor = startOfMonth(anchorEnd);
+    for (let i = 5; i >= 0; i--) {
+      const f = addMonths(anchor, -i);
+      const t = endOfMonth(f);
+      out.push({
+        from: f, to: t,
+        label: format(f, "MMM", { locale: es }),
+        isCurrent: i === 0,
+      });
     }
   }
-  return buckets;
+  return out;
 }
 
 export default function Dashboard() {
-  const [period, setPeriod] = useState<PeriodKey>("month");
+  const [mode, setMode] = useState<PeriodMode>("month");
+  const [refDate, setRefDate] = useState<Date>(new Date());
   const [custom, setCustom] = useState<{ from?: Date; to?: Date }>({});
   const [data, setData] = useState<any>(null);
 
-  const { current, previous } = useMemo(() => buildRanges(period, custom), [period, custom]);
-  const buckets = useMemo(() => buildBuckets(period, current), [period, current]);
+  const period: DashboardPeriod = useMemo(() => ({
+    mode,
+    date: refDate,
+    customStart: custom.from,
+    customEnd: custom.to,
+  }), [mode, refDate, custom]);
+
+  const current = useMemo(() => getPeriodRange(period), [period]);
+  const previous = useMemo(() => getPreviousPeriodRange(period), [period]);
+  const buckets = useMemo(
+    () => buildBuckets(current.granularity, current.end),
+    [current.granularity, current.end.getTime()],
+  );
+
 
   useEffect(() => {
     (async () => {
