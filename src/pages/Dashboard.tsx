@@ -203,20 +203,20 @@ export default function Dashboard() {
           { k: "month", l: "Mensual" },
           { k: "ytd", l: "YTD" },
           { k: "custom", l: "Personalizado" },
-        ] as { k: PeriodKey; l: string }[]).map((t) => (
+        ] as { k: PeriodMode; l: string }[]).map((t) => (
           <button
             key={t.k}
-            onClick={() => setPeriod(t.k)}
+            onClick={() => setMode(t.k)}
             className={cn(
               "text-[12px] px-3 py-1.5 rounded-md border transition-colors",
-              period === t.k ? "border-accent text-foreground bg-surface" : "border-border text-muted hover:text-foreground"
+              mode === t.k ? "border-accent text-foreground bg-surface" : "border-border text-muted hover:text-foreground"
             )}
           >
             {t.l}
           </button>
         ))}
 
-        {period === "custom" && (
+        {mode === "custom" && (
           <>
             <DateBtn date={custom.from} placeholder="Desde" onChange={(d) => setCustom((c) => ({ ...c, from: d }))} />
             <DateBtn date={custom.to} placeholder="Hasta" onChange={(d) => setCustom((c) => ({ ...c, to: d }))} />
