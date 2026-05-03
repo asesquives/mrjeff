@@ -4,8 +4,8 @@ import { PageHeader } from "@/components/PageHeader";
 import { MetricCard } from "@/components/MetricCard";
 import { BarsChart, LineChart } from "@/components/charts/MiniCharts";
 import {
-  format, startOfWeek, startOfMonth, startOfYear,
-  addDays, addMonths, addWeeks, addYears, differenceInDays,
+  format, startOfMonth, startOfWeek,
+  addMonths, addWeeks, endOfWeek, endOfMonth, endOfDay,
 } from "date-fns";
 import { es } from "date-fns/locale";
 import { formatCurrency, formatNumber } from "@/lib/format";
@@ -13,9 +13,10 @@ import { AlertTriangle, CalendarIcon } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
-
-type PeriodKey = "week" | "month" | "ytd" | "custom";
-type Range = { from: Date; to: Date; label: string };
+import {
+  DashboardPeriod, PeriodMode,
+  getPeriodRange, getPreviousPeriodRange,
+} from "@/lib/period";
 
 const pct = (curr: number, prev: number) => {
   if (prev === 0) return curr === 0 ? 0 : 100;
@@ -34,120 +35,70 @@ const fmtDeltaCurrency = (curr: number, prev: number) => {
   return `${sign}${formatCurrency(Math.abs(diff))} · ${diff >= 0 ? "+" : "−"}${Math.abs(p).toFixed(0)}%`;
 };
 
-/** Build current and comparison range for a period. */
-function buildRanges(period: PeriodKey, custom: { from?: Date; to?: Date }): { current: Range; previous: Range } {
-  const now = new Date();
-  if (period === "week") {
-    const from = startOfWeek(now, { weekStartsOn: 1 });
-    const to = now;
-    return {
-      current: { from, to, label: "Esta semana" },
-      previous: { from: addWeeks(from, -1), to: addWeeks(to, -1), label: "Semana anterior" },
-    };
-  }
-  if (period === "month") {
-    const from = startOfMonth(now);
-    const to = now;
-    return {
-      current: { from, to, label: "Este mes" },
-      previous: { from: addMonths(from, -1), to: addMonths(to, -1), label: "Mes anterior" },
-    };
-  }
-  if (period === "ytd") {
-    const from = startOfYear(now);
-    const to = now;
-    return {
-      current: { from, to, label: "Año en curso" },
-      previous: { from: addYears(from, -1), to: addYears(to, -1), label: "Año anterior" },
-    };
-  }
-  // custom
-  const from = custom.from ?? startOfMonth(now);
-  const to = custom.to ?? now;
-  const days = Math.max(1, differenceInDays(to, from) + 1);
-  return {
-    current: { from, to, label: "Personalizado" },
-    previous: { from: addDays(from, -days), to: addDays(to, -days), label: "Periodo previo" },
-  };
-}
-
-/** Build trend buckets for a period. */
-function buildBuckets(period: PeriodKey, current: Range): { from: Date; to: Date; label: string; isCurrent: boolean }[] {
-  const buckets: { from: Date; to: Date; label: string; isCurrent: boolean }[] = [];
-  const now = new Date();
-
-  if (period === "week") {
-    // last 8 weeks (weekly)
+/** Build trailing trend buckets for the chart based on granularity. */
+function buildBuckets(
+  granularity: "week" | "month",
+  anchorEnd: Date,
+): { from: Date; to: Date; label: string; isCurrent: boolean }[] {
+  const out: { from: Date; to: Date; label: string; isCurrent: boolean }[] = [];
+  if (granularity === "week") {
+    const anchor = startOfWeek(anchorEnd, { weekStartsOn: 1 });
     for (let i = 7; i >= 0; i--) {
-      const f = addWeeks(startOfWeek(now, { weekStartsOn: 1 }), -i);
-      const t = addDays(f, 7);
-      buckets.push({ from: f, to: t, label: format(f, "d MMM", { locale: es }), isCurrent: i === 0 });
-    }
-    return buckets;
-  }
-  if (period === "month") {
-    for (let i = 5; i >= 0; i--) {
-      const f = addMonths(startOfMonth(now), -i);
-      const t = addMonths(f, 1);
-      buckets.push({ from: f, to: t, label: format(f, "MMM", { locale: es }), isCurrent: i === 0 });
-    }
-    return buckets;
-  }
-  if (period === "ytd") {
-    const startY = startOfYear(now);
-    const months = now.getMonth() + 1;
-    for (let i = 0; i < months; i++) {
-      const f = addMonths(startY, i);
-      const t = addMonths(f, 1);
-      buckets.push({ from: f, to: t, label: format(f, "MMM", { locale: es }), isCurrent: i === months - 1 });
-    }
-    return buckets;
-  }
-  // custom: choose granularity
-  const days = differenceInDays(current.to, current.from) + 1;
-  if (days <= 14) {
-    for (let i = 0; i < days; i++) {
-      const f = addDays(current.from, i);
-      const t = addDays(f, 1);
-      buckets.push({ from: f, to: t, label: format(f, "d MMM", { locale: es }), isCurrent: i === days - 1 });
-    }
-  } else if (days <= 90) {
-    let f = startOfWeek(current.from, { weekStartsOn: 1 });
-    while (f <= current.to) {
-      const t = addDays(f, 7);
-      buckets.push({ from: f, to: t, label: format(f, "d MMM", { locale: es }), isCurrent: t > current.to });
-      f = t;
+      const f = addWeeks(anchor, -i);
+      const t = endOfWeek(f, { weekStartsOn: 1 });
+      out.push({
+        from: f, to: t,
+        label: format(f, "d MMM", { locale: es }),
+        isCurrent: i === 0,
+      });
     }
   } else {
-    let f = startOfMonth(current.from);
-    while (f <= current.to) {
-      const t = addMonths(f, 1);
-      buckets.push({ from: f, to: t, label: format(f, "MMM yy", { locale: es }), isCurrent: t > current.to });
-      f = t;
+    const anchor = startOfMonth(anchorEnd);
+    for (let i = 5; i >= 0; i--) {
+      const f = addMonths(anchor, -i);
+      const t = endOfMonth(f);
+      out.push({
+        from: f, to: t,
+        label: format(f, "MMM", { locale: es }),
+        isCurrent: i === 0,
+      });
     }
   }
-  return buckets;
+  return out;
 }
 
 export default function Dashboard() {
-  const [period, setPeriod] = useState<PeriodKey>("month");
+  const [mode, setMode] = useState<PeriodMode>("month");
+  const [refDate, setRefDate] = useState<Date>(new Date());
   const [custom, setCustom] = useState<{ from?: Date; to?: Date }>({});
   const [data, setData] = useState<any>(null);
 
-  const { current, previous } = useMemo(() => buildRanges(period, custom), [period, custom]);
-  const buckets = useMemo(() => buildBuckets(period, current), [period, current]);
+  const period: DashboardPeriod = useMemo(() => ({
+    mode,
+    date: refDate,
+    customStart: custom.from,
+    customEnd: custom.to,
+  }), [mode, refDate, custom]);
+
+  const current = useMemo(() => getPeriodRange(period), [period]);
+  const previous = useMemo(() => getPreviousPeriodRange(period), [period]);
+  const buckets = useMemo(
+    () => buildBuckets(current.granularity, current.end),
+    [current.granularity, current.end.getTime()],
+  );
+
 
   useEffect(() => {
     (async () => {
       // Fetch range covering current + previous + buckets
       const minFrom = new Date(Math.min(
-        previous.from.getTime(),
-        current.from.getTime(),
+        previous.start.getTime(),
+        current.start.getTime(),
         ...buckets.map((b) => b.from.getTime()),
       ));
       const maxTo = new Date(Math.max(
-        previous.to.getTime(),
-        current.to.getTime(),
+        previous.end.getTime(),
+        current.end.getTime(),
         ...buckets.map((b) => b.to.getTime()),
       ));
 
@@ -164,15 +115,15 @@ export default function Dashboard() {
           return d >= from.getTime() && d <= to.getTime();
         });
 
-      const ordersCurr = inRange(orders, "received_at", current.from, current.to);
-      const ordersPrev = inRange(orders, "received_at", previous.from, previous.to);
+      const ordersCurr = inRange(orders, "received_at", current.start, current.end);
+      const ordersPrev = inRange(orders, "received_at", previous.start, previous.end);
 
       const clientsCurr = new Set(ordersCurr.map((o: any) => o.client_id).filter(Boolean));
       const clientsPrev = new Set(ordersPrev.map((o: any) => o.client_id).filter(Boolean));
 
-      const incomeCurr = inRange(cash, "created_at", current.from, current.to)
+      const incomeCurr = inRange(cash, "created_at", current.start, current.end)
         .filter((c: any) => c.type === "income").reduce((s, c: any) => s + Number(c.amount), 0);
-      const incomePrev = inRange(cash, "created_at", previous.from, previous.to)
+      const incomePrev = inRange(cash, "created_at", previous.start, previous.end)
         .filter((c: any) => c.type === "income").reduce((s, c: any) => s + Number(c.amount), 0);
 
       // KPIs operativos (siempre actuales, independientes del periodo)
@@ -227,16 +178,16 @@ export default function Dashboard() {
         overdueList,
       });
     })();
-  }, [period, current.from, current.to, previous.from, previous.to]);
+  }, [mode, current.start.getTime(), current.end.getTime(), previous.start.getTime(), previous.end.getTime()]);
 
   const periodLabel = (() => {
-    if (period === "week") return "vs semana anterior";
-    if (period === "month") return "vs mes anterior";
-    if (period === "ytd") return "vs año anterior";
+    if (mode === "week") return "vs semana anterior";
+    if (mode === "month") return "vs mes anterior";
+    if (mode === "ytd") return "vs año anterior";
     return "vs periodo previo";
   })();
 
-  const rangeLabel = `${format(current.from, "d MMM yyyy", { locale: es })} – ${format(current.to, "d MMM yyyy", { locale: es })}`;
+  const rangeLabel = current.label;
 
   return (
     <>
@@ -252,20 +203,20 @@ export default function Dashboard() {
           { k: "month", l: "Mensual" },
           { k: "ytd", l: "YTD" },
           { k: "custom", l: "Personalizado" },
-        ] as { k: PeriodKey; l: string }[]).map((t) => (
+        ] as { k: PeriodMode; l: string }[]).map((t) => (
           <button
             key={t.k}
-            onClick={() => setPeriod(t.k)}
+            onClick={() => setMode(t.k)}
             className={cn(
               "text-[12px] px-3 py-1.5 rounded-md border transition-colors",
-              period === t.k ? "border-accent text-foreground bg-surface" : "border-border text-muted hover:text-foreground"
+              mode === t.k ? "border-accent text-foreground bg-surface" : "border-border text-muted hover:text-foreground"
             )}
           >
             {t.l}
           </button>
         ))}
 
-        {period === "custom" && (
+        {mode === "custom" && (
           <>
             <DateBtn date={custom.from} placeholder="Desde" onChange={(d) => setCustom((c) => ({ ...c, from: d }))} />
             <DateBtn date={custom.to} placeholder="Hasta" onChange={(d) => setCustom((c) => ({ ...c, to: d }))} />
@@ -316,7 +267,7 @@ export default function Dashboard() {
             trend={data.trend}
             incomeTotal={data.incomeCurr}
             ordersTotal={data.ordersCurr}
-            caption={trendCaption(period, data.trend.length)}
+            caption={trendCaption(mode, data.trend.length)}
           />
 
           <div className="mictio-card p-5 animate-fade-up">
@@ -356,10 +307,10 @@ export default function Dashboard() {
   );
 }
 
-function trendCaption(period: PeriodKey, n: number) {
-  if (period === "week") return "Últimas 8 semanas";
-  if (period === "month") return "Últimos 6 meses";
-  if (period === "ytd") return "Mes a mes este año";
+function trendCaption(mode: PeriodMode, n: number) {
+  if (mode === "week") return "Últimas 8 semanas";
+  if (mode === "month") return "Últimos 6 meses";
+  if (mode === "ytd") return "Mes a mes este año";
   return `${n} periodos`;
 }
 
