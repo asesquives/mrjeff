@@ -18,6 +18,7 @@ import {
   getPeriodRange, getPreviousPeriodRange,
 } from "@/lib/period";
 import PeriodSelector from "@/components/PeriodSelector";
+import BusinessTrends from "@/components/dashboard/BusinessTrends";
 
 const pct = (curr: number, prev: number) => {
   if (prev === 0) return curr === 0 ? 0 : 100;
@@ -247,12 +248,7 @@ export default function Dashboard() {
             </MetricCard>
           </div>
 
-          <ChartsRow
-            trend={data.trend}
-            incomeTotal={data.incomeCurr}
-            ordersTotal={data.ordersCurr}
-            caption={trendCaption(mode, data.trend.length)}
-          />
+          <BusinessTrends period={period} />
 
           <div className="mictio-card p-5 animate-fade-up">
             <div className="flex items-center justify-between mb-4">
