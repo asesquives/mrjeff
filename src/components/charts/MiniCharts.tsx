@@ -1,10 +1,22 @@
-import { useEffect, useMemo } from "react";
+import { useTheme } from "@/lib/theme";
 import { formatNumber } from "@/lib/format";
 
 type Bar = { label: string; value: number; current?: boolean };
 
-export const BarsChart = ({ bars, valueFormatter }: { bars: Bar[]; valueFormatter?: (n: number) => string }) => {
+export const BarsChart = ({
+  bars,
+  valueFormatter,
+}: {
+  bars: Bar[];
+  valueFormatter?: (n: number) => string;
+}) => {
+  const { theme } = useTheme();
+  const isDark = theme === "dark";
+  const barColor = isDark ? "rgba(255,255,255,0.25)" : "rgba(17,17,17,0.85)";
+  const barColorActive = isDark ? "rgba(255,255,255,0.55)" : "#111111";
+  const labelColor = isDark ? "rgba(255,255,255,0.30)" : "#AAAAAA";
   const max = Math.max(1, ...bars.map((b) => b.value));
+
   return (
     <div className="flex items-end justify-between gap-2 h-[160px]">
       {bars.map((b, i) => {
@@ -16,15 +28,15 @@ export const BarsChart = ({ bars, valueFormatter }: { bars: Bar[]; valueFormatte
                 className="w-full rounded-sm transition-all"
                 style={{
                   height: `${h}%`,
-                  background: "hsl(var(--accent) / 0.85)",
-                  border: b.current ? "1px solid hsl(var(--accent))" : "none",
-                  opacity: b.current ? 1 : 0.85,
+                  background: b.current ? barColorActive : barColor,
                   minHeight: 2,
                 }}
                 title={valueFormatter ? valueFormatter(b.value) : formatNumber(b.value)}
               />
             </div>
-            <div className="text-[10px] text-muted">{b.label}</div>
+            <div className="text-[10px]" style={{ color: labelColor }}>
+              {b.label}
+            </div>
           </div>
         );
       })}
@@ -33,32 +45,66 @@ export const BarsChart = ({ bars, valueFormatter }: { bars: Bar[]; valueFormatte
 };
 
 export const LineChart = ({ points }: { points: { label: string; value: number }[] }) => {
+  const { theme } = useTheme();
+  const isDark = theme === "dark";
+  const lineColor = isDark ? "rgba(255,255,255,0.70)" : "#111111";
+  const areaTop = isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.10)";
+  const areaBottom = isDark ? "rgba(255,255,255,0)" : "rgba(0,0,0,0)";
+  const dotFill = isDark ? "rgba(255,255,255,0.90)" : "#111111";
+  const dotStroke = isDark ? "#0E0E0E" : "#FFFFFF";
+  const labelColor = isDark ? "rgba(255,255,255,0.30)" : "#AAAAAA";
+
   const max = Math.max(1, ...points.map((p) => p.value));
   const w = 100;
   const h = 100;
   const stepX = points.length > 1 ? w / (points.length - 1) : 0;
-  const coords = points.map((p, i) => ({ x: i * stepX, y: h - (p.value / max) * (h - 10) - 5 }));
+  const coords = points.map((p, i) => ({
+    x: i * stepX,
+    y: h - (p.value / max) * (h - 10) - 5,
+  }));
   const path = coords.map((c, i) => `${i === 0 ? "M" : "L"}${c.x},${c.y}`).join(" ");
   const area = `${path} L${w},${h} L0,${h} Z`;
+  const lastIdx = coords.length - 1;
 
   return (
     <div className="h-[160px]">
       <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="w-full h-[130px]">
         <defs>
           <linearGradient id="lineFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="hsl(var(--accent))" stopOpacity="0.2" />
-            <stop offset="100%" stopColor="hsl(var(--accent))" stopOpacity="0" />
+            <stop offset="0%" stopColor={areaTop} />
+            <stop offset="100%" stopColor={areaBottom} />
           </linearGradient>
         </defs>
         <path d={area} fill="url(#lineFill)" />
-        <path d={path} fill="none" stroke="hsl(var(--accent))" strokeWidth={1.2} vectorEffect="non-scaling-stroke" />
+        <path
+          d={path}
+          fill="none"
+          stroke={lineColor}
+          strokeWidth={1.5}
+          vectorEffect="non-scaling-stroke"
+        />
         {coords.map((c, i) => (
-          <circle key={i} cx={c.x} cy={c.y} r={1.5} fill="hsl(var(--accent))" vectorEffect="non-scaling-stroke" />
+          <circle
+            key={i}
+            cx={c.x}
+            cy={c.y}
+            r={i === lastIdx ? 2 : 1.4}
+            fill={i === lastIdx ? dotFill : lineColor}
+            stroke={i === lastIdx ? dotStroke : "none"}
+            strokeWidth={i === lastIdx ? 0.8 : 0}
+            vectorEffect="non-scaling-stroke"
+          />
         ))}
       </svg>
       <div className="flex justify-between mt-1">
         {points.map((p, i) => (
-          <div key={i} className="text-[10px] text-muted flex-1 text-center">{p.label}</div>
+          <div
+            key={i}
+            className="text-[10px] flex-1 text-center"
+            style={{ color: labelColor }}
+          >
+            {p.label}
+          </div>
         ))}
       </div>
     </div>
