@@ -267,7 +267,7 @@ export default function Dashboard() {
             trend={data.trend}
             incomeTotal={data.incomeCurr}
             ordersTotal={data.ordersCurr}
-            caption={trendCaption(period, data.trend.length)}
+            caption={trendCaption(mode, data.trend.length)}
           />
 
           <div className="mictio-card p-5 animate-fade-up">
