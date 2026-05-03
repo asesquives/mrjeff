@@ -307,10 +307,10 @@ export default function Dashboard() {
   );
 }
 
-function trendCaption(period: PeriodKey, n: number) {
-  if (period === "week") return "Últimas 8 semanas";
-  if (period === "month") return "Últimos 6 meses";
-  if (period === "ytd") return "Mes a mes este año";
+function trendCaption(mode: PeriodMode, n: number) {
+  if (mode === "week") return "Últimas 8 semanas";
+  if (mode === "month") return "Últimos 6 meses";
+  if (mode === "ytd") return "Mes a mes este año";
   return `${n} periodos`;
 }
 
