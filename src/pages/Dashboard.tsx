@@ -394,6 +394,7 @@ function ChartsRow({
           valueFormatter={formatCurrency}
           hoverIndex={incHover}
           onHoverChange={setIncHover}
+          tooltipLabel="Ingresos"
         />
       </div>
       <div className="mictio-card p-5">
