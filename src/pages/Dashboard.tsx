@@ -1,15 +1,21 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/PageHeader";
 import { MetricCard } from "@/components/MetricCard";
 import { BarsChart, LineChart } from "@/components/charts/MiniCharts";
-import { format } from "date-fns";
-import { es } from "date-fns/locale";
 import {
-  formatCurrency, formatNumber,
-  startOfMonthLima, startOfMonthOffset, monthLabel,
-} from "@/lib/format";
-import { AlertTriangle } from "lucide-react";
+  format, startOfWeek, startOfMonth, startOfYear,
+  addDays, addMonths, addWeeks, addYears, differenceInDays,
+} from "date-fns";
+import { es } from "date-fns/locale";
+import { formatCurrency, formatNumber } from "@/lib/format";
+import { AlertTriangle, CalendarIcon } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { cn } from "@/lib/utils";
+
+type PeriodKey = "week" | "month" | "ytd" | "custom";
+type Range = { from: Date; to: Date; label: string };
 
 const pct = (curr: number, prev: number) => {
   if (prev === 0) return curr === 0 ? 0 : 100;
@@ -25,191 +31,374 @@ const fmtDeltaCurrency = (curr: number, prev: number) => {
   const diff = curr - prev;
   const p = pct(curr, prev);
   const sign = diff >= 0 ? "+" : "−";
-  return `${sign}${formatCurrency(Math.abs(diff)).replace("S/ ", "S/ ")} · ${diff >= 0 ? "+" : "−"}${Math.abs(p).toFixed(0)}%`;
+  return `${sign}${formatCurrency(Math.abs(diff))} · ${diff >= 0 ? "+" : "−"}${Math.abs(p).toFixed(0)}%`;
 };
 
+/** Build current and comparison range for a period. */
+function buildRanges(period: PeriodKey, custom: { from?: Date; to?: Date }): { current: Range; previous: Range } {
+  const now = new Date();
+  if (period === "week") {
+    const from = startOfWeek(now, { weekStartsOn: 1 });
+    const to = now;
+    return {
+      current: { from, to, label: "Esta semana" },
+      previous: { from: addWeeks(from, -1), to: addWeeks(to, -1), label: "Semana anterior" },
+    };
+  }
+  if (period === "month") {
+    const from = startOfMonth(now);
+    const to = now;
+    return {
+      current: { from, to, label: "Este mes" },
+      previous: { from: addMonths(from, -1), to: addMonths(to, -1), label: "Mes anterior" },
+    };
+  }
+  if (period === "ytd") {
+    const from = startOfYear(now);
+    const to = now;
+    return {
+      current: { from, to, label: "Año en curso" },
+      previous: { from: addYears(from, -1), to: addYears(to, -1), label: "Año anterior" },
+    };
+  }
+  // custom
+  const from = custom.from ?? startOfMonth(now);
+  const to = custom.to ?? now;
+  const days = Math.max(1, differenceInDays(to, from) + 1);
+  return {
+    current: { from, to, label: "Personalizado" },
+    previous: { from: addDays(from, -days), to: addDays(to, -days), label: "Periodo previo" },
+  };
+}
+
+/** Build trend buckets for a period. */
+function buildBuckets(period: PeriodKey, current: Range): { from: Date; to: Date; label: string; isCurrent: boolean }[] {
+  const buckets: { from: Date; to: Date; label: string; isCurrent: boolean }[] = [];
+  const now = new Date();
+
+  if (period === "week") {
+    // last 8 weeks (weekly)
+    for (let i = 7; i >= 0; i--) {
+      const f = addWeeks(startOfWeek(now, { weekStartsOn: 1 }), -i);
+      const t = addDays(f, 7);
+      buckets.push({ from: f, to: t, label: format(f, "d MMM", { locale: es }), isCurrent: i === 0 });
+    }
+    return buckets;
+  }
+  if (period === "month") {
+    for (let i = 5; i >= 0; i--) {
+      const f = addMonths(startOfMonth(now), -i);
+      const t = addMonths(f, 1);
+      buckets.push({ from: f, to: t, label: format(f, "MMM", { locale: es }), isCurrent: i === 0 });
+    }
+    return buckets;
+  }
+  if (period === "ytd") {
+    const startY = startOfYear(now);
+    const months = now.getMonth() + 1;
+    for (let i = 0; i < months; i++) {
+      const f = addMonths(startY, i);
+      const t = addMonths(f, 1);
+      buckets.push({ from: f, to: t, label: format(f, "MMM", { locale: es }), isCurrent: i === months - 1 });
+    }
+    return buckets;
+  }
+  // custom: choose granularity
+  const days = differenceInDays(current.to, current.from) + 1;
+  if (days <= 14) {
+    for (let i = 0; i < days; i++) {
+      const f = addDays(current.from, i);
+      const t = addDays(f, 1);
+      buckets.push({ from: f, to: t, label: format(f, "d MMM", { locale: es }), isCurrent: i === days - 1 });
+    }
+  } else if (days <= 90) {
+    let f = startOfWeek(current.from, { weekStartsOn: 1 });
+    while (f <= current.to) {
+      const t = addDays(f, 7);
+      buckets.push({ from: f, to: t, label: format(f, "d MMM", { locale: es }), isCurrent: t > current.to });
+      f = t;
+    }
+  } else {
+    let f = startOfMonth(current.from);
+    while (f <= current.to) {
+      const t = addMonths(f, 1);
+      buckets.push({ from: f, to: t, label: format(f, "MMM yy", { locale: es }), isCurrent: t > current.to });
+      f = t;
+    }
+  }
+  return buckets;
+}
+
 export default function Dashboard() {
+  const [period, setPeriod] = useState<PeriodKey>("month");
+  const [custom, setCustom] = useState<{ from?: Date; to?: Date }>({});
   const [data, setData] = useState<any>(null);
+
+  const { current, previous } = useMemo(() => buildRanges(period, custom), [period, custom]);
+  const buckets = useMemo(() => buildBuckets(period, current), [period, current]);
 
   useEffect(() => {
     (async () => {
-      const startMonth = startOfMonthLima(0);
-      const startPrev = startOfMonthOffset(1);
-      const startSix = startOfMonthOffset(5);
+      // Fetch range covering current + previous + buckets
+      const minFrom = new Date(Math.min(
+        previous.from.getTime(),
+        current.from.getTime(),
+        ...buckets.map((b) => b.from.getTime()),
+      ));
+      const maxTo = new Date(Math.max(
+        previous.to.getTime(),
+        current.to.getTime(),
+        ...buckets.map((b) => b.to.getTime()),
+      ));
 
-      const [ordersRes, cashRes, clientsRes] = await Promise.all([
-        supabase.from("orders").select("*, clients(name)").gte("received_at", startSix).order("received_at", { ascending: false }),
-        supabase.from("cash_entries").select("*").gte("created_at", startSix),
-        supabase.from("clients").select("id"),
+      const [ordersRes, cashRes] = await Promise.all([
+        supabase.from("orders").select("*, clients(name)").gte("received_at", minFrom.toISOString()).lte("received_at", maxTo.toISOString()),
+        supabase.from("cash_entries").select("*").gte("created_at", minFrom.toISOString()).lte("created_at", maxTo.toISOString()),
       ]);
       const orders = ordersRes.data ?? [];
       const cash = cashRes.data ?? [];
 
-      // Mes actual / anterior
-      const ordersMonth = orders.filter((o) => o.received_at >= startMonth);
-      const ordersPrev = orders.filter((o) => o.received_at >= startPrev && o.received_at < startMonth);
+      const inRange = <T extends { received_at?: string; created_at?: string }>(arr: T[], field: "received_at" | "created_at", from: Date, to: Date) =>
+        arr.filter((x) => {
+          const d = new Date((x as any)[field]).getTime();
+          return d >= from.getTime() && d <= to.getTime();
+        });
 
-      const clientsMonth = new Set(ordersMonth.map((o: any) => o.client_id).filter(Boolean));
+      const ordersCurr = inRange(orders, "received_at", current.from, current.to);
+      const ordersPrev = inRange(orders, "received_at", previous.from, previous.to);
+
+      const clientsCurr = new Set(ordersCurr.map((o: any) => o.client_id).filter(Boolean));
       const clientsPrev = new Set(ordersPrev.map((o: any) => o.client_id).filter(Boolean));
 
-      const incomeMonth = cash.filter((c) => c.type === "income" && c.created_at >= startMonth)
-        .reduce((s, c) => s + Number(c.amount), 0);
-      const incomePrev = cash.filter((c) => c.type === "income" && c.created_at >= startPrev && c.created_at < startMonth)
-        .reduce((s, c) => s + Number(c.amount), 0);
+      const incomeCurr = inRange(cash, "created_at", current.from, current.to)
+        .filter((c: any) => c.type === "income").reduce((s, c: any) => s + Number(c.amount), 0);
+      const incomePrev = inRange(cash, "created_at", previous.from, previous.to)
+        .filter((c: any) => c.type === "income").reduce((s, c: any) => s + Number(c.amount), 0);
 
-      // KPIs operativos
-      const pendingToday = orders.filter((o) => ["received", "processing"].includes(o.status)).length;
-      const overdue = orders.filter(
-        (o) => ["received", "processing"].includes(o.status) && o.promised_at && new Date(o.promised_at) < new Date()
+      // KPIs operativos (siempre actuales, independientes del periodo)
+      // Usamos query separada light
+      const { data: openOrders } = await supabase
+        .from("orders").select("*, clients(name)")
+        .in("status", ["received", "processing"]);
+      const pendingToday = (openOrders ?? []).length;
+      const overdue = (openOrders ?? []).filter(
+        (o: any) => o.promised_at && new Date(o.promised_at) < new Date()
       );
-      const deliveredAll = orders.filter((o) => o.status === "delivered");
-      const avgOrder = deliveredAll.length
-        ? deliveredAll.reduce((s, o) => s + Number(o.total_amount), 0) / deliveredAll.length
+
+      const deliveredCurr = ordersCurr.filter((o: any) => o.status === "delivered");
+      const avgOrder = deliveredCurr.length
+        ? deliveredCurr.reduce((s: number, o: any) => s + Number(o.total_amount), 0) / deliveredCurr.length
         : 0;
 
       const methodCount: Record<string, number> = {};
-      deliveredAll.forEach((o) => {
+      deliveredCurr.forEach((o: any) => {
         if (!o.payment_method) return;
         methodCount[o.payment_method] = (methodCount[o.payment_method] ?? 0) + 1;
       });
       const topMethod = Object.entries(methodCount).sort((a, b) => b[1] - a[1])[0];
 
-      // Tendencias 6 meses
-      const monthBuckets: { label: string; income: number; orders: number; isCurrent: boolean }[] = [];
-      for (let i = 5; i >= 0; i--) {
-        const start = startOfMonthOffset(i);
-        const end = i === 0 ? "9999-12-31T00:00:00Z" : startOfMonthOffset(i - 1);
-        const inc = cash.filter((c) => c.type === "income" && c.created_at >= start && c.created_at < end)
-          .reduce((s, c) => s + Number(c.amount), 0);
-        const ord = orders.filter((o) => o.received_at >= start && o.received_at < end).length;
-        monthBuckets.push({ label: monthLabel(i), income: inc, orders: ord, isCurrent: i === 0 });
-      }
+      // Tendencias por buckets
+      const trend = buckets.map((b) => {
+        const inc = inRange(cash, "created_at", b.from, b.to)
+          .filter((c: any) => c.type === "income").reduce((s, c: any) => s + Number(c.amount), 0);
+        const ord = inRange(orders, "received_at", b.from, b.to).length;
+        return { label: b.label, income: inc, orders: ord, isCurrent: b.isCurrent };
+      });
 
-      // Alertas: órdenes atrasadas con días de atraso
       const overdueList = overdue
-        .map((o) => ({
+        .map((o: any) => ({
           ...o,
           daysLate: Math.floor((Date.now() - new Date(o.promised_at).getTime()) / 86400000),
         }))
-        .sort((a, b) => b.daysLate - a.daysLate);
+        .sort((a: any, b: any) => b.daysLate - a.daysLate);
 
       setData({
-        today: new Date(),
-        ordersMonth: ordersMonth.length,
+        ordersCurr: ordersCurr.length,
         ordersPrev: ordersPrev.length,
-        clientsMonth: clientsMonth.size,
+        clientsCurr: clientsCurr.size,
         clientsPrev: clientsPrev.size,
-        incomeMonth, incomePrev,
+        incomeCurr, incomePrev,
         pendingToday,
         overdueCount: overdue.length,
         avgOrder,
         topMethod: topMethod ? topMethod[0] : "—",
         topMethodCount: topMethod ? topMethod[1] : 0,
-        monthBuckets,
+        trend,
         overdueList,
       });
     })();
-  }, []);
+  }, [period, current.from, current.to, previous.from, previous.to]);
 
-  if (!data) return <div className="text-muted text-sm">Cargando…</div>;
+  const periodLabel = (() => {
+    if (period === "week") return "vs semana anterior";
+    if (period === "month") return "vs mes anterior";
+    if (period === "ytd") return "vs año anterior";
+    return "vs periodo previo";
+  })();
+
+  const rangeLabel = `${format(current.from, "d MMM yyyy", { locale: es })} – ${format(current.to, "d MMM yyyy", { locale: es })}`;
 
   return (
     <>
       <PageHeader
-        eyebrow={format(data.today, "EEEE d 'de' MMMM, yyyy", { locale: es })}
+        eyebrow={rangeLabel}
         title="Dashboard"
       />
 
-      {/* Fila 1 - Comparativas */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 stagger mb-4">
-        <MetricCard
-          label="Órdenes del mes"
-          value={formatNumber(data.ordersMonth)}
-          delta={fmtDelta(data.ordersMonth, data.ordersPrev)}
-          deltaTone={data.ordersMonth >= data.ordersPrev ? "pos" : "neg"}
-        >vs {formatNumber(data.ordersPrev)} mes anterior</MetricCard>
-        <MetricCard
-          label="Clientes atendidos"
-          value={formatNumber(data.clientsMonth)}
-          delta={fmtDelta(data.clientsMonth, data.clientsPrev)}
-          deltaTone={data.clientsMonth >= data.clientsPrev ? "pos" : "neg"}
-        >vs {formatNumber(data.clientsPrev)} mes anterior</MetricCard>
-        <MetricCard
-          label="Ingresos del mes"
-          value={formatCurrency(data.incomeMonth)}
-          delta={fmtDeltaCurrency(data.incomeMonth, data.incomePrev)}
-          deltaTone={data.incomeMonth >= data.incomePrev ? "pos" : "neg"}
-        >vs {formatCurrency(data.incomePrev)} mes anterior</MetricCard>
-      </div>
+      {/* Period selector */}
+      <div className="flex items-center gap-2 mb-5 animate-fade-up flex-wrap">
+        {([
+          { k: "week", l: "Semana" },
+          { k: "month", l: "Mensual" },
+          { k: "ytd", l: "YTD" },
+          { k: "custom", l: "Personalizado" },
+        ] as { k: PeriodKey; l: string }[]).map((t) => (
+          <button
+            key={t.k}
+            onClick={() => setPeriod(t.k)}
+            className={cn(
+              "text-[12px] px-3 py-1.5 rounded-md border transition-colors",
+              period === t.k ? "border-accent text-foreground bg-surface" : "border-border text-muted hover:text-foreground"
+            )}
+          >
+            {t.l}
+          </button>
+        ))}
 
-      {/* Fila 2 - KPIs operativos */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 stagger mb-8">
-        <MetricCard label="Pendientes hoy" value={formatNumber(data.pendingToday)} />
-        <MetricCard
-          label="Atrasadas"
-          value={formatNumber(data.overdueCount)}
-          deltaTone={data.overdueCount > 0 ? "neg" : "pos"}
-          delta={data.overdueCount > 0 ? "Atención" : "OK"}
-        />
-        <MetricCard label="Ticket promedio" value={formatCurrency(data.avgOrder)} />
-        <MetricCard label="Pago favorito" value={(data.topMethod ?? "—").toUpperCase()}>
-          {formatNumber(data.topMethodCount)} órdenes
-        </MetricCard>
-      </div>
-
-      {/* Tendencias */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 stagger mb-8">
-        <div className="mictio-card p-5">
-          <div className="flex items-center justify-between mb-4">
-            <span className="eyebrow">Ingresos por mes</span>
-            <span className="text-[11px] text-muted">Últimos 6 meses</span>
-          </div>
-          <BarsChart
-            bars={data.monthBuckets.map((b: any) => ({ label: b.label, value: b.income, current: b.isCurrent }))}
-            valueFormatter={formatCurrency}
-          />
-        </div>
-        <div className="mictio-card p-5">
-          <div className="flex items-center justify-between mb-4">
-            <span className="eyebrow">Órdenes por mes</span>
-            <span className="text-[11px] text-muted">Últimos 6 meses</span>
-          </div>
-          <LineChart points={data.monthBuckets.map((b: any) => ({ label: b.label, value: b.orders }))} />
-        </div>
-      </div>
-
-      {/* Alertas */}
-      <div className="mictio-card p-5 animate-fade-up">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <AlertTriangle size={14} className="text-warning" />
-            <span className="eyebrow">Órdenes atrasadas</span>
-          </div>
-          <span className="badge-state badge-state-neg">{data.overdueList.length}</span>
-        </div>
-        {data.overdueList.length === 0 ? (
-          <div className="text-[13px] text-muted py-4 text-center">Sin atrasos. Todo al día ✓</div>
-        ) : (
-          <div className="divide-y divide-border">
-            {data.overdueList.map((o: any) => (
-              <div key={o.id} className="flex items-center justify-between py-2.5 text-[13px]">
-                <div className="flex flex-col">
-                  <span className="font-medium">{o.clients?.name ?? "—"}</span>
-                  <span className="text-[11px] text-muted">
-                    Prometida {format(new Date(o.promised_at), "d MMM HH:mm", { locale: es })}
-                  </span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-muted">{formatCurrency(Number(o.total_amount))}</span>
-                  <span className="badge-state badge-state-neg">
-                    {o.daysLate === 0 ? "Hoy" : `${o.daysLate}d atraso`}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
+        {period === "custom" && (
+          <>
+            <DateBtn date={custom.from} placeholder="Desde" onChange={(d) => setCustom((c) => ({ ...c, from: d }))} />
+            <DateBtn date={custom.to} placeholder="Hasta" onChange={(d) => setCustom((c) => ({ ...c, to: d }))} />
+          </>
         )}
       </div>
+
+      {!data ? (
+        <div className="text-muted text-sm">Cargando…</div>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 stagger mb-4">
+            <MetricCard
+              label="Órdenes"
+              value={formatNumber(data.ordersCurr)}
+              delta={fmtDelta(data.ordersCurr, data.ordersPrev)}
+              deltaTone={data.ordersCurr >= data.ordersPrev ? "pos" : "neg"}
+            >{periodLabel}: {formatNumber(data.ordersPrev)}</MetricCard>
+            <MetricCard
+              label="Clientes atendidos"
+              value={formatNumber(data.clientsCurr)}
+              delta={fmtDelta(data.clientsCurr, data.clientsPrev)}
+              deltaTone={data.clientsCurr >= data.clientsPrev ? "pos" : "neg"}
+            >{periodLabel}: {formatNumber(data.clientsPrev)}</MetricCard>
+            <MetricCard
+              label="Ingresos"
+              value={formatCurrency(data.incomeCurr)}
+              delta={fmtDeltaCurrency(data.incomeCurr, data.incomePrev)}
+              deltaTone={data.incomeCurr >= data.incomePrev ? "pos" : "neg"}
+            >{periodLabel}: {formatCurrency(data.incomePrev)}</MetricCard>
+          </div>
+
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 stagger mb-8">
+            <MetricCard label="Pendientes hoy" value={formatNumber(data.pendingToday)} />
+            <MetricCard
+              label="Atrasadas"
+              value={formatNumber(data.overdueCount)}
+              deltaTone={data.overdueCount > 0 ? "neg" : "pos"}
+              delta={data.overdueCount > 0 ? "Atención" : "OK"}
+            />
+            <MetricCard label="Ticket promedio" value={formatCurrency(data.avgOrder)} />
+            <MetricCard label="Pago favorito" value={(data.topMethod ?? "—").toUpperCase()}>
+              {formatNumber(data.topMethodCount)} órdenes
+            </MetricCard>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 stagger mb-8">
+            <div className="mictio-card p-5">
+              <div className="flex items-center justify-between mb-4">
+                <span className="eyebrow">Ingresos</span>
+                <span className="text-[11px] text-muted">{trendCaption(period, data.trend.length)}</span>
+              </div>
+              <BarsChart
+                bars={data.trend.map((b: any) => ({ label: b.label, value: b.income, current: b.isCurrent }))}
+                valueFormatter={formatCurrency}
+              />
+            </div>
+            <div className="mictio-card p-5">
+              <div className="flex items-center justify-between mb-4">
+                <span className="eyebrow">Órdenes</span>
+                <span className="text-[11px] text-muted">{trendCaption(period, data.trend.length)}</span>
+              </div>
+              <LineChart points={data.trend.map((b: any) => ({ label: b.label, value: b.orders }))} />
+            </div>
+          </div>
+
+          <div className="mictio-card p-5 animate-fade-up">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <AlertTriangle size={14} className="text-warning" />
+                <span className="eyebrow">Órdenes atrasadas</span>
+              </div>
+              <span className="badge-state badge-state-neg">{data.overdueList.length}</span>
+            </div>
+            {data.overdueList.length === 0 ? (
+              <div className="text-[13px] text-muted py-4 text-center">Sin atrasos. Todo al día ✓</div>
+            ) : (
+              <div className="divide-y divide-border">
+                {data.overdueList.map((o: any) => (
+                  <div key={o.id} className="flex items-center justify-between py-2.5 text-[13px]">
+                    <div className="flex flex-col">
+                      <span className="font-medium">{o.clients?.name ?? "—"}</span>
+                      <span className="text-[11px] text-muted">
+                        Prometida {format(new Date(o.promised_at), "d MMM HH:mm", { locale: es })}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-muted">{formatCurrency(Number(o.total_amount))}</span>
+                      <span className="badge-state badge-state-neg">
+                        {o.daysLate === 0 ? "Hoy" : `${o.daysLate}d atraso`}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </>
+  );
+}
+
+function trendCaption(period: PeriodKey, n: number) {
+  if (period === "week") return "Últimas 8 semanas";
+  if (period === "month") return "Últimos 6 meses";
+  if (period === "ytd") return "Mes a mes este año";
+  return `${n} periodos`;
+}
+
+function DateBtn({ date, placeholder, onChange }: { date?: Date; placeholder: string; onChange: (d?: Date) => void }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          className={cn(
+            "flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-md border border-border hover:text-foreground",
+            date ? "text-foreground" : "text-muted"
+          )}
+        >
+          <CalendarIcon size={12} />
+          {date ? format(date, "d MMM yyyy", { locale: es }) : placeholder}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-0" align="start">
+        <Calendar
+          mode="single"
+          selected={date}
+          onSelect={(d) => onChange(d ?? undefined)}
+          initialFocus
+          className={cn("p-3 pointer-events-auto")}
+        />
+      </PopoverContent>
+    </Popover>
   );
 }
