@@ -407,6 +407,7 @@ function ChartsRow({
           points={trend.map((b) => ({ label: b.label, value: b.orders }))}
           hoverIndex={ordHover}
           onHoverChange={setOrdHover}
+          tooltipLabel="Órdenes"
         />
       </div>
     </div>
