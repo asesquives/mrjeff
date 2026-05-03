@@ -178,16 +178,16 @@ export default function Dashboard() {
         overdueList,
       });
     })();
-  }, [period, current.start, current.end, previous.start, previous.end]);
+  }, [mode, current.start.getTime(), current.end.getTime(), previous.start.getTime(), previous.end.getTime()]);
 
   const periodLabel = (() => {
-    if (period === "week") return "vs semana anterior";
-    if (period === "month") return "vs mes anterior";
-    if (period === "ytd") return "vs año anterior";
+    if (mode === "week") return "vs semana anterior";
+    if (mode === "month") return "vs mes anterior";
+    if (mode === "ytd") return "vs año anterior";
     return "vs periodo previo";
   })();
 
-  const rangeLabel = `${format(current.start, "d MMM yyyy", { locale: es })} – ${format(current.end, "d MMM yyyy", { locale: es })}`;
+  const rangeLabel = current.label;
 
   return (
     <>
